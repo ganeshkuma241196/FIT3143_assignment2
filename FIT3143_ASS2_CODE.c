@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <mpi.h>
 #include <time.h>
+#include <math.h>
 #include <unistd.h>
 #include <pthread.h>
 
@@ -11,6 +13,7 @@
 #define SIZE 10
 #define SHIFT_ROW 0
 #define SHIFT_COL 1
+#define DISP 1
 
 int master_io(MPI_Comm world_comm, MPI_Comm comm);
 int slave_io(MPI_Comm world_comm, MPI_Comm comm);
@@ -29,6 +32,7 @@ bool terminate=false;
 int matches=0;
 int totalMessages=0;
 int totalaltimeterreadings=0;
+
 
 
 
@@ -164,11 +168,11 @@ void* sensor_comm(void *pArg)
 
 void* base_comm(void *pArg)
 {
-	
+	FILE *fp;
 
 
 
-    fp = fopen("outputBase.txt","w");
+    fp = fopen("outputBase2.txt","w");
 	
 	while(!terminate)
 	{
@@ -176,7 +180,7 @@ void* base_comm(void *pArg)
 	MPI_Status base_status;
 	int sendFlag;
 	float sendArray[5];
-	MPI_Irecv( sendArray, 5, MPI_FLOAT, MPI_ANY_SOURCE, 2, world_comm ,&base_request);
+	MPI_Irecv( sendArray, 5, MPI_FLOAT, MPI_ANY_SOURCE, 2, MPI_COMM_WORLD ,&base_request);
 	MPI_Test(&base_request,&sendFlag,&base_status);
 
 	if(sendFlag!=0)
@@ -200,7 +204,7 @@ void* base_comm(void *pArg)
 		}
 
 		else{
-			loop=back-front+1
+			loop=back-front+1;
 		}
 
 		
@@ -230,12 +234,12 @@ void* base_comm(void *pArg)
 						strftime(buf3, sizeof(buf3), "%a %Y-%m-%d %H:%M:%S", &ts);
 						found=true;
 						fprintf(fp, "True alert:\n");
-						fprintf(fp, "\t Coordinates:%d,%d\n", sendArray[2],sendArray[3]);
+						fprintf(fp, "\t Coordinates:%d,%d\n", (int)sendArray[2],(int)sendArray[3]);
 						fprintf(fp,"\t Sensor datetime:%s\n",buf2);
 						fprintf(fp,"\t Altimeter datetime:%s\n",buf3);
-						fprintf(fp,"\t Sensor column height:%d\n",sendArray[0]);
-						fprintf(fp,"\t altimeter column height:%d\n",altimeterReadings[i][0]);
-						fprintf(fp,"\t No. of adjacent sensors exceeding with values similar:%d\n",sendArray[4]);
+						fprintf(fp,"\t Sensor column height:%f\n",sendArray[0]);
+						fprintf(fp,"\t altimeter column height:%f\n",altimeterReadings[i][0]);
+						fprintf(fp,"\t No. of adjacent sensors exceeding with values similar:%d\n",(int)sendArray[4]);
 						
 						break;
 
@@ -265,10 +269,10 @@ void* base_comm(void *pArg)
             strftime(buf2, sizeof(buf2), "%a %Y-%m-%d %H:%M:%S", &ts);
 						
 			fprintf(fp, "False alert:\n");
-			fprintf(fp, "\t Coordinates:%d,%d\n", sendArray[2],sendArray[3]);
+			fprintf(fp, "\t Coordinates:%d,%d\n", (int)sendArray[2],(int)sendArray[3]);
 			fprintf(fp,"\t Sensor datetime:%s\n",buf2);
-			fprintf(fp,"\t Sensor column height:%d\n",sendArray[0]);
-			fprintf(fp,"\t No. of adjacent sensors exceeding with values similar:%d\n",sendArray[4]);
+			fprintf(fp,"\t Sensor column height:%f\n",sendArray[0]);
+			fprintf(fp,"\t No. of adjacent sensors exceeding with values similar:%d\n",(int)sendArray[4]);
 
 
 		}
@@ -292,6 +296,7 @@ int master_io(MPI_Comm world_comm, MPI_Comm comm)
 	int size;
 	MPI_Comm_size(world_comm, &size );
 	g_nslaves = size - 1;
+    FILE *fp;
 	
 	pthread_t tid;
 	pthread_t tid2;
@@ -320,6 +325,8 @@ int master_io(MPI_Comm world_comm, MPI_Comm comm)
 	}
 
 	MPI_Waitall(size-1, send_request, send_status);
+
+    printf("we have executed order 66");
 
 	unsigned int endtime= time(NULL);
 
@@ -417,6 +424,7 @@ int slave_io(MPI_Comm world_comm, MPI_Comm comm)
 	    float val3= val4;
 	    float val4= ((float)rand_r(&seed)/(float)(RAND_MAX)) * 2500 + threshhold-1000;
 	    movingAverage= (val1+val2+val3+val4)/4;
+        printf("Slave Rank: %d. Moving average%f ] \n",my_rank,movingAverage);
 		pthread_mutex_unlock(&g_Mutex);
 
 		if (movingAverage>threshhold)
@@ -424,9 +432,9 @@ int slave_io(MPI_Comm world_comm, MPI_Comm comm)
 			
 
 			MPI_Request send_request[4];
-	        MPI_Request recv_request[4];
+	        MPI_Request receive_request[4];
 	        MPI_Status send_status[4];
-	        MPI_Status recv_status[4];
+	        MPI_Status receive_status[4];
 			int sendFlag;
 			int receiveFlag;
 
@@ -446,14 +454,14 @@ int slave_io(MPI_Comm world_comm, MPI_Comm comm)
 			MPI_Testall(4, send_request, &sendFlag, send_status);
 			MPI_Testall(4, receive_request, &receiveFlag ,receive_status);
 
-			float MAarray[4]= {recvValL,recvValR,recvValT,recvValB};
+			float MArray[4]= {recvValL,recvValR,recvValT,recvValB};
 			int match = 0;
 
 			for (int i=0;i<4;i++)
 			{
 				if(MArray[i]>0)
 				{
-					if(abs(movingAverage - MAarray[i]) <= 100)
+					if(abs(movingAverage - MArray[i]) <= 100)
 				{
 				    match += 1;
 				}
@@ -474,6 +482,7 @@ int slave_io(MPI_Comm world_comm, MPI_Comm comm)
 	            MPI_Status base_status;
 				MPI_Isend( sendArray, 5, MPI_FLOAT, masterSize-1, 2, world_comm ,&base_request);
 				MPI_Test(&base_request,&sendFlag,&base_status);
+                printf("Slave Rank: %d. base send%d ] \n",my_rank,base_status);
 
 			}
 			
