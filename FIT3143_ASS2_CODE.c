@@ -136,6 +136,7 @@ void* sensor_comm(void *pArg)
 	    int baseFlag;
 		float useless;
 		
+		
 
 		MPI_Irecv(&useless, 1, MPI_FLOAT, MPI_ANY_SOURCE, 0, comm2D, &sensor_request);
 		MPI_Irecv(&useless, 1, MPI_FLOAT, size-1, 66, MPI_COMM_WORLD, &base_request);
@@ -156,6 +157,8 @@ void* sensor_comm(void *pArg)
 			MPI_Isend(&movingAverage, 1, MPI_FLOAT, sensor , 1, comm2D, &sensor_request);
 			MPI_Test(&sensor_request,&sensorFlag,&sensor_status);
 			pthread_mutex_unlock(&g_Mutex);
+			printf("We are here%d\n",sensorFlag);
+	        fflush(stdout);
 
 		}
 		
@@ -172,10 +175,44 @@ void* base_comm(void *pArg)
 
 
 
-    fp = fopen("outputBase2.txt","w");
+    
 	
 	while(!terminate)
 	{
+	
+
+
+	}
+
+	
+	return 0;
+	
+	
+}
+
+/* This is the master */
+int master_io(MPI_Comm world_comm, MPI_Comm comm)
+{
+	unsigned int starttime= time(NULL);
+	int size;
+	MPI_Comm_size(world_comm, &size );
+	g_nslaves = size - 1;
+    FILE *fp;
+	
+	pthread_t tid;
+	//pthread_t tid2;
+
+	pthread_mutex_init(&g_Mutex, NULL);
+	pthread_create(&tid, 0, altimeter, NULL); // Create the thread
+	//pthread_create(&tid2, 0, base_comm, NULL); // Create the thread
+
+
+	char buf[256];
+	MPI_Status status;
+	for(int i=0;i<iterations;i++)  {
+
+	sleep(1000);
+
 	MPI_Request base_request;
 	MPI_Status base_status;
 	int sendFlag;
@@ -185,6 +222,7 @@ void* base_comm(void *pArg)
 
 	if(sendFlag!=0)
 	{
+		printf("we have started");
 
 		pthread_mutex_lock(&g_Mutex);
 		totalMessages+=1;
@@ -233,6 +271,7 @@ void* base_comm(void *pArg)
 						ts = *localtime(&now2);
 						strftime(buf3, sizeof(buf3), "%a %Y-%m-%d %H:%M:%S", &ts);
 						found=true;
+						fp = fopen("outputBase2.txt","w");
 						fprintf(fp, "True alert:\n");
 						fprintf(fp, "\t Coordinates:%d,%d\n", (int)sendArray[2],(int)sendArray[3]);
 						fprintf(fp,"\t Sensor datetime:%s\n",buf2);
@@ -240,6 +279,7 @@ void* base_comm(void *pArg)
 						fprintf(fp,"\t Sensor column height:%f\n",sendArray[0]);
 						fprintf(fp,"\t altimeter column height:%f\n",altimeterReadings[i][0]);
 						fprintf(fp,"\t No. of adjacent sensors exceeding with values similar:%d\n",(int)sendArray[4]);
+						fclose(fp);
 						
 						break;
 
@@ -267,50 +307,20 @@ void* base_comm(void *pArg)
 						
 			ts = *localtime(&now);
             strftime(buf2, sizeof(buf2), "%a %Y-%m-%d %H:%M:%S", &ts);
+			fp = fopen("outputBase2.txt","w");
 						
 			fprintf(fp, "False alert:\n");
 			fprintf(fp, "\t Coordinates:%d,%d\n", (int)sendArray[2],(int)sendArray[3]);
 			fprintf(fp,"\t Sensor datetime:%s\n",buf2);
 			fprintf(fp,"\t Sensor column height:%f\n",sendArray[0]);
 			fprintf(fp,"\t No. of adjacent sensors exceeding with values similar:%d\n",(int)sendArray[4]);
+			fclose(fp);
 
 
 		}
 
 
 	}
-
-
-	}
-
-	fclose(fp);
-	return 0;
-	
-	
-}
-
-/* This is the master */
-int master_io(MPI_Comm world_comm, MPI_Comm comm)
-{
-	unsigned int starttime= time(NULL);
-	int size;
-	MPI_Comm_size(world_comm, &size );
-	g_nslaves = size - 1;
-    FILE *fp;
-	
-	pthread_t tid;
-	pthread_t tid2;
-
-	pthread_mutex_init(&g_Mutex, NULL);
-	pthread_create(&tid, 0, altimeter, NULL); // Create the thread
-	pthread_create(&tid2, 0, base_comm, NULL); // Create the thread
-
-
-	char buf[256];
-	MPI_Status status;
-	for(int i=0;i<iterations;i++)  {
-
-		        sleep(1000);
 
 		
 	}
@@ -351,7 +361,7 @@ int master_io(MPI_Comm world_comm, MPI_Comm comm)
 
 	
 	pthread_join(tid, NULL);
-	pthread_join(tid2, NULL);
+	//pthread_join(tid2, NULL);
 	pthread_mutex_destroy(&g_Mutex);
 	
     return 0;
@@ -451,8 +461,8 @@ int slave_io(MPI_Comm world_comm, MPI_Comm comm)
 			MPI_Irecv(&recvValL, 1, MPI_FLOAT, nbr_j_lo, 1, comm2D, &receive_request[2]);
 			MPI_Irecv(&recvValR, 1, MPI_FLOAT, nbr_j_hi, 1, comm2D, &receive_request[3]);
 
-			MPI_Testall(4, send_request, &sendFlag, send_status);
-			MPI_Testall(4, receive_request, &receiveFlag ,receive_status);
+			MPI_Waitall(4, send_request,  send_status);
+			MPI_Waitall(4, receive_request, receive_status);
 
 			float MArray[4]= {recvValL,recvValR,recvValT,recvValB};
 			int match = 0;
@@ -482,14 +492,14 @@ int slave_io(MPI_Comm world_comm, MPI_Comm comm)
 	            MPI_Status base_status;
 				MPI_Isend( sendArray, 5, MPI_FLOAT, masterSize-1, 2, world_comm ,&base_request);
 				MPI_Test(&base_request,&sendFlag,&base_status);
-                printf("Slave Rank: %d. base send%d ] \n",my_rank,base_status);
+                printf("Slave Rank: %d. base send%f ] \n",my_rank,movingAverage);
 
 			}
 			
 		}
 
 
-		sleep(5000);
+		
 
 		
 
